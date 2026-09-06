@@ -427,31 +427,33 @@ export default function App() {
         </div>
 
         {/* Right Column (30% width): Telemetry & Actions Sidebar */}
-        <aside className="w-[30%] h-full bg-white border-l border-gray-200 shadow-sm z-10 flex flex-col">
-          {/* Drawer Header */}
-          <div className="h-16 border-b border-gray-200 px-6 flex items-center justify-between shrink-0 bg-white">
-            <div className="flex items-center gap-2.5">
-              <Activity className="w-4 h-4 text-blue-600" />
-              <h2 className="font-bold text-gray-900 text-base tracking-tight">
-                Telemetry & Actions
-              </h2>
+        {/* Right Column (30% width): Combined Telemetry & Actions + Forecast Sidebar */}
+        <aside className="w-[30%] h-full bg-white border-l border-gray-200 shadow-sm z-10 flex flex-col overflow-y-auto overflow-x-hidden divide-y divide-gray-200">
+          {/* 1. TOP PART: TELEMETRY & ACTIONS */}
+          <div className="flex flex-col shrink-0">
+            {/* Drawer Header */}
+            <div className="h-14 border-b border-gray-200 px-5 flex items-center justify-between shrink-0 bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-blue-600" />
+                <h2 className="font-bold text-gray-900 text-sm tracking-tight">
+                  Telemetry & Actions
+                </h2>
+              </div>
+              {selectedSystem && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedComponentId(null)}
+                  className="text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+                  title="Deselect"
+                >
+                  Clear
+                </button>
+              )}
             </div>
-            {selectedSystem && (
-              <button
-                type="button"
-                onClick={() => setSelectedComponentId(null)}
-                className="text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-                title="Deselect"
-              >
-                Clear
-              </button>
-            )}
-          </div>
 
-          {/* Drawer Body: Telemetry & Actions for Selected Component */}
-          {selectedSystem ? (
-            <div className="flex-1 p-6 flex flex-col justify-between overflow-y-auto bg-white">
-              <div className="space-y-4">
+            {/* Drawer Body: Telemetry & Actions for Selected Component */}
+            {selectedSystem ? (
+              <div className="p-5 space-y-4">
                 {/* Header with Component Name, Code & Level */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -462,7 +464,7 @@ export default function App() {
                       {selectedSystem.level} • {selectedSystem.category}
                     </span>
                   </div>
-                  <h3 className="text-gray-900 font-bold text-lg leading-snug">
+                  <h3 className="text-gray-900 font-bold text-base leading-snug">
                     {selectedSystem.name}
                   </h3>
 
@@ -470,7 +472,7 @@ export default function App() {
                   {(() => {
                     const badge = getStatusBadge(selectedSystem.status);
                     return (
-                      <div className={`mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold border ${badge.badgeClass}`}>
+                      <div className={`mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-bold border ${badge.badgeClass}`}>
                         <span className={`w-2 h-2 rounded-full ${badge.dotClass} ${selectedSystem.status !== 'OPERATIONAL' ? 'animate-ping' : ''}`}></span>
                         <span>● {badge.label}</span>
                       </div>
@@ -478,14 +480,12 @@ export default function App() {
                   })()}
                 </div>
 
-                {/* ========================================================== */}
-                {/* SMART AUTOMATION / AI RULE RECOMMENDATION ENGINE (PS26060) */}
-                {/* ========================================================== */}
+                {/* AI Recommendation if any */}
                 {selectedSystem.recommendation && (
-                  <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-900 shadow-2xs space-y-2 animate-in fade-in">
+                  <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 shadow-2xs space-y-2">
                     <div className="flex items-center justify-between font-bold text-blue-800">
                       <span className="flex items-center gap-1.5">
-                        <Bot className="w-4 h-4 text-blue-600" />
+                        <Bot className="w-3.5 h-3.5 text-blue-600" />
                         Smart Automation Recommendation
                       </span>
                       <span className="font-mono text-[10px] px-1.5 py-0.5 bg-blue-100 rounded text-blue-700">
@@ -517,104 +517,91 @@ export default function App() {
                 </div>
 
                 {/* Component-Specific Telemetry Rows */}
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-700">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2.5">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
+                  <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">
                     Live Telemetry Parameters
                   </h4>
                   <div className="divide-y divide-gray-200">
                     {Object.entries(selectedSystem.telemetry || {}).map(([key, val]) => (
-                      <div key={key} className="flex items-center justify-between py-2 text-xs">
+                      <div key={key} className="flex items-center justify-between py-1.5 text-xs">
                         <span className="text-gray-500 font-medium">{key}:</span>
                         <span className="font-mono font-semibold text-gray-900">{val}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-              </div>
 
-              {/* Supported Remote Actions Section */}
-              <div className="mt-5 pt-4 border-t border-gray-100 space-y-2">
-                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                  Remote Management Actions
-                </h4>
+                {/* Supported Remote Actions Section */}
+                <div className="space-y-2 pt-2 border-t border-gray-100">
+                  <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                    Remote Management Actions
+                  </h4>
 
-                {/* Primary Action Button */}
-                <button
-                  type="button"
-                  onClick={() => handleExecuteAction('RUN DIAGNOSTICS')}
-                  disabled={diagnosticsRunning}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-80 text-white w-full py-2.5 rounded-lg shadow-sm transition-colors font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {diagnosticsRunning ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Transmitting Remote Command...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>RUN DIAGNOSTICS</span>
-                    </>
-                  )}
-                </button>
+                  {/* Primary Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleExecuteAction('RUN DIAGNOSTICS')}
+                    disabled={diagnosticsRunning}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-80 text-white w-full py-2 rounded-lg shadow-sm transition-colors font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {diagnosticsRunning ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Transmitting Remote Command...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>RUN DIAGNOSTICS</span>
+                      </>
+                    )}
+                  </button>
 
-                {/* Contextual Realistic Component Actions */}
-                <div className="grid grid-cols-1 gap-1.5">
-                  {selectedSystem.availableActions?.filter((a) => a !== 'RUN DIAGNOSTICS').map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      onClick={() => handleExecuteAction(action)}
-                      disabled={diagnosticsRunning}
-                      className="w-full py-2 px-3 text-xs font-semibold bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                    >
-                      <Power className="w-3.5 h-3.5 text-gray-500" />
-                      <span>{action}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Action Confirmation Banner */}
-                {actionNotice && (
-                  <div className="mt-2.5 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-start gap-2 animate-in fade-in">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>{actionNotice.text}</span>
+                  {/* Contextual Realistic Component Actions */}
+                  <div className="grid grid-cols-1 gap-1">
+                    {selectedSystem.availableActions?.filter((a) => a !== 'RUN DIAGNOSTICS').map((action) => (
+                      <button
+                        key={action}
+                        type="button"
+                        onClick={() => handleExecuteAction(action)}
+                        disabled={diagnosticsRunning}
+                        className="w-full py-1.5 px-3 text-xs font-semibold bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                      >
+                        <Power className="w-3 h-3 text-gray-500" />
+                        <span>{action}</span>
+                      </button>
+                    ))}
                   </div>
-                )}
+
+                  {/* Action Confirmation Banner */}
+                  {actionNotice && (
+                    <div className="mt-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-start gap-1.5 animate-in fade-in">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>{actionNotice.text}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ) : (
-            /* Empty State */
-            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400 gap-3">
-              <Info className="w-10 h-10 stroke-[1.5]" />
-              <p className="text-sm max-w-[220px] leading-relaxed">
-                Select a station zone or infrastructure component to view telemetry.
-              </p>
-            </div>
-          )}
+            ) : (
+              /* Empty State */
+              <div className="p-4 flex items-center gap-3 text-gray-400 bg-gray-50/50">
+                <Info className="w-5 h-5 stroke-[1.5] text-gray-400 shrink-0" />
+                <p className="text-xs text-gray-500 leading-normal">
+                  Select a station zone or infrastructure component to view live telemetry and remote actions.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* 2. BOTTOM PART: FORECAST */}
+          <div className="p-5 shrink-0 bg-white">
+            <ForecastPanel />
+          </div>
         </aside>
       </section>
 
       {/* ============================================================== */}
-      {/* SECTION 2: FORECAST PANEL (Current → Predicted)                 */}
-      {/* ============================================================== */}
-      <section id="forecast-section" className="w-full bg-white border-b border-gray-200 px-6 lg:px-12 py-10">
-        <div className="max-w-6xl mx-auto space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-mono font-bold text-blue-700 uppercase tracking-wider">
-              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-              <span>Station Environmental & Demand Forecasting</span>
-            </div>
-            <span className="text-xs font-mono text-gray-400">Current → Predicted</span>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-xs p-6">
-            <ForecastPanel />
-          </div>
-        </div>
-      </section>
-
-      {/* ============================================================== */}
-      {/* SECTION 3: SCENARIO CONTROL (Power | Generator | Fuel | ...)   */}
+      {/* SECTION 2: SCENARIO CONTROL (Power | Generator | Fuel | ...)   */}
       {/* ============================================================== */}
       <section id="scenario-control-section" className="w-full bg-gray-50 border-b border-gray-200 px-6 lg:px-12 py-10">
         <div className="max-w-6xl mx-auto space-y-4">
@@ -632,7 +619,7 @@ export default function App() {
       </section>
 
       {/* ============================================================== */}
-      {/* SECTION 4: SIMULATION RESULTS (Impact | Risk | Forecast | ...) */}
+      {/* SECTION 3: SIMULATION RESULTS (Impact | Risk | Forecast | ...) */}
       {/* ============================================================== */}
       <section id="simulation-results-section" className="w-full bg-white px-6 lg:px-12 py-10 pb-20">
         <div className="max-w-6xl mx-auto space-y-4">

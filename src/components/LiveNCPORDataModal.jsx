@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Thermometer, 
   Droplets, 
@@ -18,6 +18,7 @@ import {
   Loader2
 } from 'lucide-react';
 import IndiaFlag from './IndiaFlag';
+import ChartTooltip from './ChartTooltip';
 import { 
   fetchLiveNCPORData, 
   NCPOR_SOURCE_URL, 
@@ -34,6 +35,10 @@ export default function LiveNCPORDataModal({ isOpen, onClose, onStatusChange }) 
   const [status, setStatus] = useState('CONNECTING'); // 'LIVE' | 'UNAVAILABLE' | 'CONNECTING'
   const [errorMsg, setErrorMsg] = useState(null);
   const [activeChartParam, setActiveChartParam] = useState('temperature');
+
+  // Interactive chart hover state
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+  const chartContainerRef = useRef(null);
 
   // Format local time as HH:MM:SS
   const getFormattedTime = () => {
@@ -200,10 +205,33 @@ export default function LiveNCPORDataModal({ isOpen, onClose, onStatusChange }) 
   const chartPoints = activeSeries.map((pt, idx) => {
     const x = (idx / (activeSeries.length - 1 || 1)) * 600;
     const y = 140 - ((pt.value - minVal) / valRange) * 110;
-    return { x, y, value: pt.value };
+    return { x, y, value: pt.value, timestamp: pt.timestamp };
   });
 
   const svgPath = chartPoints.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x},${pt.y}`, '');
+
+  // Handle modal chart mouse move
+  const handleChartMouseMove = (e) => {
+    if (!chartContainerRef.current || chartPoints.length === 0) return;
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const normX = (mouseX / rect.width) * 600;
+
+    let nearestIdx = 0;
+    let minDiff = Infinity;
+    chartPoints.forEach((pt, i) => {
+      const diff = Math.abs(normX - pt.x);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearestIdx = i;
+      }
+    });
+    setHoveredIdx(nearestIdx);
+  };
+
+  const handleChartMouseLeave = () => {
+    setHoveredIdx(null);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
@@ -693,7 +721,12 @@ export default function LiveNCPORDataModal({ isOpen, onClose, onStatusChange }) 
                     </div>
                   </div>
 
-                  <div className="h-36 w-full pt-2">
+                  <div 
+                    ref={chartContainerRef}
+                    className="h-36 w-full pt-2 relative overflow-visible cursor-crosshair"
+                    onMouseMove={handleChartMouseMove}
+                    onMouseLeave={handleChartMouseLeave}
+                  >
                     <svg viewBox="0 0 600 150" className="w-full h-full overflow-visible">
                       <line x1="0" y1="30" x2="600" y2="30" stroke="#f1f5f9" strokeWidth="1" />
                       <line x1="0" y1="85" x2="600" y2="85" stroke="#f1f5f9" strokeWidth="1" />
@@ -714,20 +747,114 @@ export default function LiveNCPORDataModal({ isOpen, onClose, onStatusChange }) 
                         />
                       )}
 
-                      {chartPoints.map((pt, i) => (
-                        <circle
-                          key={i}
-                          cx={pt.x}
-                          cy={pt.y}
-                          r="2.5"
-                          fill={
-                            activeChartParam === 'temperature' ? '#D9534F' :
-                            activeChartParam === 'humidity' ? '#5CB85C' :
-                            activeChartParam === 'pressure' ? '#343A40' : '#4E8DF1'
-                          }
-                        />
-                      ))}
+                      {chartPoints.map((pt, i) => {
+                        const isHovered = hoveredIdx === i;
+                        const paramColor = 
+                          activeChartParam === 'temperature' ? '#D9534F' :
+                          activeChartParam === 'humidity' ? '#5CB85C' :
+                          activeChartParam === 'pressure' ? '#343A40' : '#4E8DF1';
+
+                        return (
+                          <circle
+                            key={i}
+                            cx={pt.x}
+                            cy={pt.y}
+                            r={isHovered ? "4.5" : "2.5"}
+                            fill={paramColor}
+                            stroke={isHovered ? "#fff" : "none"}
+                            strokeWidth={isHovered ? "1.5" : "0"}
+                            className="transition-all"
+                          />
+                        );
+                      })}
+
+                      {/* Interactive Vertical Guide Line and Highlight Circle */}
+                      {hoveredIdx !== null && chartPoints[hoveredIdx] && (() => {
+                        const pt = chartPoints[hoveredIdx];
+                        const paramColor = 
+                          activeChartParam === 'temperature' ? '#D9534F' :
+                          activeChartParam === 'humidity' ? '#5CB85C' :
+                          activeChartParam === 'pressure' ? '#343A40' : '#4E8DF1';
+
+                        return (
+                          <g className="pointer-events-none transition-all duration-150">
+                            <line
+                              x1={pt.x}
+                              y1={25}
+                              x2={pt.x}
+                              y2={145}
+                              stroke="#94a3b8"
+                              strokeWidth="1.25"
+                              strokeDasharray="3,2"
+                              opacity="0.85"
+                            />
+                            <circle
+                              cx={pt.x}
+                              cy={pt.y}
+                              r="5.5"
+                              fill={paramColor}
+                              stroke="#fff"
+                              strokeWidth="2.5"
+                            />
+                          </g>
+                        );
+                      })()}
                     </svg>
+
+                    {/* Interactive Floating Hover Tooltip */}
+                    {hoveredIdx !== null && chartPoints[hoveredIdx] && (() => {
+                      const pt = chartPoints[hoveredIdx];
+                      const xPercent = (pt.x / 600) * 100;
+                      
+                      // Format timestamp
+                      let formattedTime = 'Observation';
+                      if (pt.timestamp) {
+                        try {
+                          const dateObj = new Date(pt.timestamp);
+                          if (!isNaN(dateObj.getTime())) {
+                            formattedTime = dateObj.toUTCString().slice(17, 22) + ' UTC';
+                          }
+                        } catch {
+                          // Fallback to relative time
+                        }
+                      } else {
+                        const hoursAgo = Math.round(24 - (hoveredIdx / (chartPoints.length - 1 || 1)) * 24);
+                        formattedTime = hoursAgo === 0 ? 'Latest' : `T - ${hoursAgo}h`;
+                      }
+
+                      const paramLabel = 
+                        activeChartParam === 'temperature' ? 'Temperature' :
+                        activeChartParam === 'humidity' ? 'Relative Humidity' :
+                        activeChartParam === 'pressure' ? 'Air Pressure' : 'Wind Speed';
+
+                      const paramUnit = 
+                        activeChartParam === 'temperature' ? '°C' :
+                        activeChartParam === 'humidity' ? '%' :
+                        activeChartParam === 'pressure' ? 'hPa' : 'm/s';
+
+                      const paramColor = 
+                        activeChartParam === 'temperature' ? '#D9534F' :
+                        activeChartParam === 'humidity' ? '#5CB85C' :
+                        activeChartParam === 'pressure' ? '#343A40' : '#4E8DF1';
+
+                      return (
+                        <ChartTooltip
+                          timestamp={formattedTime}
+                          subtitle="NCPOR Live"
+                          items={[
+                            {
+                              label: paramLabel,
+                              value: pt.value,
+                              unit: paramUnit,
+                              color: paramColor
+                            }
+                          ]}
+                          xPercent={xPercent}
+                          yPercent={35}
+                          flipLeft={xPercent > 55}
+                        />
+                      );
+                    })()}
 
                     <div className="flex justify-between text-[10px] font-mono text-gray-400 mt-1">
                       <span>Start: {chartPoints[0]?.value} (24h ago)</span>

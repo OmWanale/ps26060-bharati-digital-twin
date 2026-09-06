@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Zap, 
   Flame, 
@@ -15,6 +15,7 @@ import {
   CloudSnow
 } from 'lucide-react';
 import { DEFAULT_MOCK_SIMULATION_RESULT } from '../data/mockSimulationResult';
+import ChartTooltip from './ChartTooltip';
 
 /**
  * SimulationResultPanel Component
@@ -40,6 +41,10 @@ export default function SimulationResultPanel({
 }) {
   // Active metric displayed in the Forecast Trend line chart: 'power' | 'fuel' | 'both'
   const [activeChartMetric, setActiveChartMetric] = useState('power');
+
+  // Interactive chart hover state
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+  const chartContainerRef = useRef(null);
 
   // Fallback to default mock result if no external result passed and not empty/loading
   const result = externalResult || (empty ? null : DEFAULT_MOCK_SIMULATION_RESULT);
@@ -187,6 +192,30 @@ export default function SimulationResultPanel({
     const y = getY(val);
     return i === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
   }, '');
+
+  // Handle chart mouse move for snapping to nearest data point
+  const handleChartMouseMove = (e) => {
+    if (!chartContainerRef.current || points.length === 0) return;
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const normX = (mouseX / rect.width) * svgWidth;
+
+    let nearestIdx = 0;
+    let minDiff = Infinity;
+    points.forEach((_, i) => {
+      const px = getX(i);
+      const diff = Math.abs(normX - px);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearestIdx = i;
+      }
+    });
+    setHoveredIdx(nearestIdx);
+  };
+
+  const handleChartMouseLeave = () => {
+    setHoveredIdx(null);
+  };
 
   return (
     <div className={`bg-white rounded-xl flex flex-col space-y-4 ${className}`}>
@@ -478,11 +507,16 @@ export default function SimulationResultPanel({
           </div>
         </div>
 
-        {/* SVG Responsive Line Chart */}
-        <div className="w-full overflow-hidden">
+        {/* Responsive SVG Line Chart with Interactive Hover */}
+        <div 
+          ref={chartContainerRef}
+          className="w-full relative overflow-visible cursor-crosshair"
+          onMouseMove={handleChartMouseMove}
+          onMouseLeave={handleChartMouseLeave}
+        >
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-            className="w-full h-auto select-none"
+            className="w-full h-auto select-none overflow-visible"
           >
             {/* Horizontal Grid lines */}
             {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
@@ -518,7 +552,9 @@ export default function SimulationResultPanel({
                 x={getX(i)}
                 y={svgHeight - 8}
                 textAnchor="middle"
-                className="text-[9px] font-mono fill-gray-500 font-medium"
+                className={`text-[9px] font-mono font-medium transition-colors ${
+                  hoveredIdx === i ? 'fill-blue-600 font-bold' : 'fill-gray-500'
+                }`}
               >
                 {pt.time}
               </text>
@@ -539,28 +575,96 @@ export default function SimulationResultPanel({
               const val = activeChartMetric === 'fuel' ? pt.fuel : pt.power;
               const x = getX(i);
               const y = getY(val);
+              const isHovered = hoveredIdx === i;
               return (
                 <g key={i}>
                   <circle
                     cx={x}
                     cy={y}
-                    r="3.5"
-                    className="fill-white"
+                    r={isHovered ? "5.5" : "3.5"}
+                    className="fill-white transition-all"
                     stroke={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
-                    strokeWidth="2"
+                    strokeWidth={isHovered ? "2.5" : "2"}
                   />
                   <text
                     x={x}
-                    y={y - 7}
+                    y={y - 8}
                     textAnchor="middle"
-                    className="text-[8.5px] font-mono font-bold fill-gray-700"
+                    className={`text-[8.5px] font-mono font-bold transition-all ${
+                      isHovered ? 'fill-blue-700' : 'fill-gray-700'
+                    }`}
                   >
                     {val}
                   </text>
                 </g>
               );
             })}
+
+            {/* Interactive Vertical Crosshair Guide */}
+            {hoveredIdx !== null && points[hoveredIdx] && (
+              <g className="pointer-events-none transition-all duration-150">
+                <line
+                  x1={getX(hoveredIdx)}
+                  y1={padding.top}
+                  x2={getX(hoveredIdx)}
+                  y2={svgHeight - padding.bottom}
+                  stroke={activeChartMetric === 'power' ? '#3b82f6' : '#f59e0b'}
+                  strokeWidth="1.25"
+                  strokeDasharray="3,2"
+                  opacity="0.8"
+                />
+                {(() => {
+                  const val = activeChartMetric === 'fuel' ? points[hoveredIdx].fuel : points[hoveredIdx].power;
+                  return (
+                    <circle
+                      cx={getX(hoveredIdx)}
+                      cy={getY(val)}
+                      r="6"
+                      fill={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
+                      stroke="#fff"
+                      strokeWidth="2.5"
+                    />
+                  );
+                })()}
+              </g>
+            )}
           </svg>
+
+          {/* Interactive Floating Hover Tooltip */}
+          {hoveredIdx !== null && points[hoveredIdx] && (() => {
+            const pt = points[hoveredIdx];
+            const ptX = getX(hoveredIdx);
+            const xPercent = (ptX / svgWidth) * 100;
+            const timeLabel = pt.time.endsWith('h') 
+              ? `+${pt.time.replace('h', '')} hours` 
+              : pt.time;
+
+            return (
+              <ChartTooltip
+                timestamp={timeLabel}
+                subtitle="Simulated"
+                items={[
+                  {
+                    label: 'Predicted Power Demand',
+                    value: pt.power,
+                    unit: 'kW',
+                    color: '#2563eb',
+                    isForecast: true
+                  },
+                  {
+                    label: 'Fuel Consumption',
+                    value: pt.fuel,
+                    unit: 'L/hr',
+                    color: '#d97706',
+                    isForecast: true
+                  }
+                ]}
+                xPercent={xPercent}
+                yPercent={40}
+                flipLeft={xPercent > 55}
+              />
+            );
+          })()}
         </div>
       </div>
 
