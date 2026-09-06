@@ -11,16 +11,19 @@ import {
   RotateCcw, 
   Power, 
   Bot, 
-  PlayCircle,
-  X
+  PlayCircle
 } from 'lucide-react';
 import { 
-  INITIAL_SYSTEM_STATES, 
-  SIMULATION_SCENARIOS 
+  INITIAL_SYSTEM_STATES 
 } from './data/bharatiFloorData';
 import ArchitecturalFloorPlan from './components/ArchitecturalFloorPlan';
 import IndiaFlag from './components/IndiaFlag';
 import LiveNCPORDataModal from './components/LiveNCPORDataModal';
+import ForecastPanel from './components/ForecastPanel';
+import ScenarioControlPanel from './components/ScenarioControlPanel';
+import SimulationResultPanel from './components/SimulationResultPanel';
+import { simulateScenario } from './services/simulationService';
+import { DEFAULT_MOCK_SIMULATION_RESULT } from './data/mockSimulationResult';
 
 export default function App() {
   const [activeLevel, setActiveLevel] = useState('Level 2');
@@ -29,8 +32,10 @@ export default function App() {
   const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
   const [actionNotice, setActionNotice] = useState(null);
   const [activeScenarioId, setActiveScenarioId] = useState(null);
-  const [showScenarioModal, setShowScenarioModal] = useState(false);
   const [showLiveDataModal, setShowLiveDataModal] = useState(false);
+  const [simulationResult, setSimulationResult] = useState(DEFAULT_MOCK_SIMULATION_RESULT);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simulationError, setSimulationError] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date().toUTCString());
 
   useEffect(() => {
@@ -215,26 +220,42 @@ export default function App() {
     }, 800);
   };
 
-  // Launch Simulated Scenario
-  const handleSelectScenario = (scenario) => {
-    setShowScenarioModal(false);
-    setActiveScenarioId(scenario.id);
-    setActionNotice(null);
+  // Execute What-If Scenario simulation and update results section
+  const handleSimulateScenario = async (scenarioPayload) => {
+    setIsSimulating(true);
+    setSimulationError(null);
 
-    // Apply fault state to systems
-    setSystemStates((prev) => ({
-      ...prev,
-      ...scenario.faultState,
-    }));
+    // Smooth scroll to the results section
+    const resultsEl = document.getElementById('simulation-results-section');
+    if (resultsEl) {
+      resultsEl.scrollIntoView({ behavior: 'smooth' });
+    }
 
-    // Switch floor view and select component
-    setActiveLevel(scenario.targetLevel);
-    setSelectedComponentId(scenario.targetComponentId);
+    try {
+      const res = await simulateScenario(scenarioPayload);
+      setSimulationResult(res);
+      setActionNotice({
+        type: 'success',
+        text: `What-If Simulation complete: Predicted Power ${res.summary.predictedPowerDemand.value} kW, Fuel ${res.summary.predictedFuelConsumption.value} L/hr.`
+      });
+    } catch (err) {
+      console.error('Simulation error:', err);
+      setSimulationError('Unable to generate simulation results.');
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  // Smooth scroll to scenario control panel
+  const scrollToScenario = () => {
+    const el = document.getElementById('scenario-control-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   // Reset all systems to nominal
   const handleResetAllNominal = () => {
-    setShowScenarioModal(false);
     setActiveScenarioId(null);
     setActionNotice(null);
     setSystemStates(INITIAL_SYSTEM_STATES);
@@ -272,11 +293,11 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-full flex flex-col overflow-hidden text-gray-800 bg-gray-50 font-sans select-none">
+    <div className="min-h-screen w-full flex flex-col text-gray-800 bg-gray-50 font-sans">
       {/* ============================================================== */}
       {/* TOP NAVBAR: BHARATI REMOTE OPERATIONS                          */}
       {/* ============================================================== */}
-      <header className="h-16 bg-white border-b border-gray-200 shadow-xs px-6 flex items-center justify-between z-20 shrink-0">
+      <header className="sticky top-0 h-16 bg-white border-b border-gray-200 shadow-xs px-6 flex items-center justify-between z-30 shrink-0">
         {/* Left: Station Identity on a single line */}
         <div className="flex items-center gap-2.5 shrink-0 select-none">
           {/* Indian National Flag */}
@@ -314,12 +335,12 @@ export default function App() {
             <span>Live NCPOR Data</span>
           </button>
 
-          {/* Action 2: Simulate Scenario (Blue Accent - What-If / Simulation) */}
+          {/* Action 2: Simulate Scenario (Scrolls to Scenario Control) */}
           <button
             type="button"
-            onClick={() => setShowScenarioModal(true)}
+            onClick={scrollToScenario}
             className="px-3.5 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-            title="Simulate Anomaly Scenario (What-If Analysis)"
+            title="Jump to Scenario Control (What-If Analysis)"
           >
             <PlayCircle className="w-3.5 h-3.5 text-white" />
             <span>Simulate Scenario</span>
@@ -328,11 +349,15 @@ export default function App() {
       </header>
 
       {/* ============================================================== */}
-      {/* MAIN BODY: 70% BLUEPRINT (LEFT) + 30% TELEMETRY DRAWER (RIGHT) */}
+      {/* MAIN CONTENT AREA: VERTICALLY SCROLLABLE                       */}
       {/* ============================================================== */}
-      <main className="flex-1 flex overflow-hidden bg-gray-50">
+      <main className="min-h-0 flex-1 flex flex-col">
+        {/* ============================================================== */}
+        {/* SECTION 1: 2D FLOORPLAN (LEFT) + TELEMETRY SIDEBAR (RIGHT)     */}
+        {/* ============================================================== */}
+        <section className="w-full h-[calc(100vh-4rem)] min-h-[600px] flex border-b border-gray-200 shrink-0 bg-gray-50">
         {/* Left Column (70% width): Interactive Floor Plan */}
-        <section className="w-[70%] h-full p-5 flex flex-col overflow-hidden">
+        <div className="w-[70%] h-full p-5 flex flex-col overflow-hidden">
           {/* Floor Navigation Toggles */}
           <div className="flex items-center justify-between mb-3 shrink-0">
             <div className="inline-flex items-center gap-1.5">
@@ -399,10 +424,10 @@ export default function App() {
             }}
             systemStates={systemStates}
           />
-        </section>
+        </div>
 
-        {/* Right Column (30% width): Telemetry & Actions Drawer */}
-        <aside className="w-[30%] h-full bg-white border-l border-gray-200 shadow-lg z-10 flex flex-col">
+        {/* Right Column (30% width): Telemetry & Actions Sidebar */}
+        <aside className="w-[30%] h-full bg-white border-l border-gray-200 shadow-sm z-10 flex flex-col">
           {/* Drawer Header */}
           <div className="h-16 border-b border-gray-200 px-6 flex items-center justify-between shrink-0 bg-white">
             <div className="flex items-center gap-2.5">
@@ -415,7 +440,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setSelectedComponentId(null)}
-                className="text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                 title="Deselect"
               >
                 Clear
@@ -423,7 +448,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Drawer Body */}
+          {/* Drawer Body: Telemetry & Actions for Selected Component */}
           {selectedSystem ? (
             <div className="flex-1 p-6 flex flex-col justify-between overflow-y-auto bg-white">
               <div className="space-y-4">
@@ -568,73 +593,68 @@ export default function App() {
             </div>
           )}
         </aside>
-      </main>
+      </section>
 
       {/* ============================================================== */}
-      {/* SIMULATE SCENARIO MODAL                                        */}
+      {/* SECTION 2: FORECAST PANEL (Current → Predicted)                 */}
       {/* ============================================================== */}
-      {showScenarioModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-xl w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-gray-900">
-                  Simulate Station Anomaly Scenario
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Test automated fault detection, AI recommendation and remote operator mitigation.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowScenarioModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      <section id="forecast-section" className="w-full bg-white border-b border-gray-200 px-6 lg:px-12 py-10">
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-mono font-bold text-blue-700 uppercase tracking-wider">
+              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+              <span>Station Environmental & Demand Forecasting</span>
             </div>
-
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-              {SIMULATION_SCENARIOS.map((scen) => (
-                <div
-                  key={scen.id}
-                  onClick={() => handleSelectScenario(scen)}
-                  className="p-3.5 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm text-gray-900 group-hover:text-blue-600">
-                      {scen.title}
-                    </span>
-                    <span className="text-[11px] font-mono px-2 py-0.5 bg-gray-100 text-gray-600 rounded">
-                      {scen.targetLevel}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                    {scen.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={handleResetAllNominal}
-                className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                Reset All to Nominal
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowScenarioModal(false)}
-                className="px-4 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+            <span className="text-xs font-mono text-gray-400">Current → Predicted</span>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-xs p-6">
+            <ForecastPanel />
           </div>
         </div>
-      )}
+      </section>
+
+      {/* ============================================================== */}
+      {/* SECTION 3: SCENARIO CONTROL (Power | Generator | Fuel | ...)   */}
+      {/* ============================================================== */}
+      <section id="scenario-control-section" className="w-full bg-gray-50 border-b border-gray-200 px-6 lg:px-12 py-10">
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-mono font-bold text-indigo-700 uppercase tracking-wider">
+              <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+              <span>What-If Scenario Control</span>
+            </div>
+            <span className="text-xs font-mono text-gray-400">Power | Generator | Fuel | Environment | Duration</span>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-xs p-6">
+            <ScenarioControlPanel onSimulate={handleSimulateScenario} />
+          </div>
+        </div>
+      </section>
+
+      {/* ============================================================== */}
+      {/* SECTION 4: SIMULATION RESULTS (Impact | Risk | Forecast | ...) */}
+      {/* ============================================================== */}
+      <section id="simulation-results-section" className="w-full bg-white px-6 lg:px-12 py-10 pb-20">
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-mono font-bold text-emerald-700 uppercase tracking-wider">
+              <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+              <span>Simulated Operational Results</span>
+            </div>
+            <span className="text-xs font-mono text-gray-400">Impact | Risk | Forecast | Recommendation</span>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-xs p-6">
+            <SimulationResultPanel
+              simulationResult={simulationResult}
+              loading={isSimulating}
+              error={simulationError}
+              empty={!simulationResult && !isSimulating}
+              onRunNewScenario={scrollToScenario}
+            />
+          </div>
+        </div>
+      </section>
+      </main>
 
       {/* ============================================================== */}
       {/* LIVE NCPOR REAL-DATA PORTAL MODAL / SECTION                     */}
