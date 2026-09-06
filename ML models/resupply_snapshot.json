@@ -1,0 +1,68 @@
+[
+  {
+    "shipment_id": "SHIP_001",
+    "planned_date": "2024-01-05",
+    "estimated_arrival": "2024-01-07",
+    "weather_risk": "MEDIUM",
+    "inventory_urgency": "MEDIUM",
+    "route_status": "ON_SCHEDULE",
+    "delay_risk": 5,
+    "final_status": "COMPLETED",
+    "predicted_risk_score": 15
+  },
+  {
+    "shipment_id": "SHIP_002",
+    "planned_date": "2024-01-20",
+    "estimated_arrival": "2024-01-23",
+    "weather_risk": "LOW",
+    "inventory_urgency": "MEDIUM",
+    "route_status": "ON_SCHEDULE",
+    "delay_risk": 5,
+    "final_status": "COMPLETED",
+    "predicted_risk_score": 10
+  },
+  {
+    "shipment_id": "SHIP_003",
+    "planned_date": "2024-02-05",
+    "estimated_arrival": "2024-02-07",
+    "weather_risk": "LOW",
+    "inventory_urgency": "LOW",
+    "route_status": "ON_SCHEDULE",
+    "delay_risk": 5,
+    "final_status": "COMPLETED",
+    "predicted_risk_score": 7.5
+  },
+  {
+    "shipment_id": "SHIP_004",
+    "planned_date": "2024-02-20",
+    "estimated_arrival": "2024-02-22",
+    "weather_risk": "MEDIUM",
+    "inventory_urgency": "LOW",
+    "route_status": "ON_SCHEDULE",
+    "delay_risk": 5,
+    "final_status": "COMPLETED",
+    "predicted_risk_score": 12.5
+  },
+  {
+    "shipment_id": "SHIP_005",
+    "planned_date": "2024-03-05",
+    "estimated_arrival": "2024-03-09",
+    "weather_risk": "LOW",
+    "inventory_urgency": "LOW",
+    "route_status": "ON_SCHEDULE",
+    "delay_risk": 5,
+    "final_status": "COMPLETED",
+    "predicted_risk_score": 7.5
+  },
+  {
+    "shipment_id": "SHIP_006",
+    "planned_date": "2024-03-20",
+    "estimated_arrival": "2024-03-23",
+    "weather_risk": "HIGH",
+    "inventory_urgency": "HIGH",
+    "route_status": "ON_SCHEDULE",
+    "delay_risk": 20,
+    "final_status": "COMPLETED",
+    "predicted_risk_score": 30
+  }
+]

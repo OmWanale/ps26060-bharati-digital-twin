@@ -22,6 +22,7 @@ import LiveNCPORDataModal from './components/LiveNCPORDataModal';
 import ForecastPanel from './components/ForecastPanel';
 import ScenarioControlPanel from './components/ScenarioControlPanel';
 import SimulationResultPanel from './components/SimulationResultPanel';
+import MLPredictionsSection from './components/MLPredictionsSection';
 import { simulateScenario } from './services/simulationService';
 import { DEFAULT_MOCK_SIMULATION_RESULT } from './data/mockSimulationResult';
 
@@ -641,6 +642,11 @@ export default function App() {
           </div>
         </div>
       </section>
+
+      {/* ============================================================== */}
+      {/* SECTION 4: ML PREDICTIONS (Equipment | Fuel | Water | ...)    */}
+      {/* ============================================================== */}
+      <MLPredictionsSection />
       </main>
 
       {/* ============================================================== */}
