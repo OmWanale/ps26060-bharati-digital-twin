@@ -855,10 +855,10 @@ export default function ArchitecturalFloorPlan({
               MoES / NCPOR SMART AUTOMATION PLATFORM
             </text>
             <text x="205" y="11" className="text-[7.5px] font-bold fill-blue-700">
-              PS26060 DIGITAL TWIN
+              REMOTE OPERATIONS TWIN
             </text>
             <text x="205" y="21" className="text-[6.5px] fill-slate-500">
-              MOCK SIMULATION MODE
+              STATION STATUS: ACTIVE
             </text>
           </g>
 
@@ -912,7 +912,7 @@ export default function ArchitecturalFloorPlan({
           <span>Lat: 69°24′28″S | Long: 76°11′14″E</span>
         </div>
         <div>
-          <span>SIH PS26060 • Smart Automation Architectural Platform</span>
+          <span>Bharati Antarctic Station • Operations Platform</span>
         </div>
       </div>
     </div>
