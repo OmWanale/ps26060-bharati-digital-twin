@@ -12,10 +12,82 @@ import {
   Lightbulb, 
   Info,
   Calendar,
-  CloudSnow
+  CloudSnow,
+  Clock
 } from 'lucide-react';
 import { DEFAULT_MOCK_SIMULATION_RESULT } from '../data/mockSimulationResult';
-import ChartTooltip from './ChartTooltip';
+
+/**
+ * Generate smooth cubic Catmull-Rom/Bézier spline path across points
+ */
+function getSmoothSplinePath(pts) {
+  if (!pts || pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+  if (pts.length === 2) return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+
+  let path = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = i > 0 ? pts[i - 1] : pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = i < pts.length - 2 ? pts[i + 2] : p2;
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+    path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+
+  return path;
+}
+
+/**
+ * Evaluate cubic Catmull-Rom/Bézier curve at fractional parameter u [0, 1] on segment i
+ */
+function getSplineValueAtU(values, i, u) {
+  if (!values || values.length === 0) return 0;
+  if (values.length === 1) return values[0];
+  const N = values.length - 1;
+  const seg = Math.max(0, Math.min(N - 1, i));
+
+  const v0 = seg > 0 ? values[seg - 1] : values[seg];
+  const v1 = values[seg];
+  const v2 = values[seg + 1];
+  const v3 = seg < N - 1 ? values[seg + 2] : v2;
+
+  const cp1 = v1 + (v2 - v0) / 6;
+  const cp2 = v2 - (v3 - v1) / 6;
+
+  const oneMinusU = 1 - u;
+  return (
+    Math.pow(oneMinusU, 3) * v1 +
+    3 * Math.pow(oneMinusU, 2) * u * cp1 +
+    3 * oneMinusU * Math.pow(u, 2) * cp2 +
+    Math.pow(u, 3) * v2
+  );
+}
+
+/**
+ * Robustly parse timeline time strings (e.g. "10:00", "0h", "6h", "12.5h") to total minutes
+ */
+function parseTimeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const str = String(timeStr).trim();
+  const colonMatch = str.match(/(\d{1,2}):(\d{2})/);
+  if (colonMatch) {
+    return parseInt(colonMatch[1], 10) * 60 + parseInt(colonMatch[2], 10);
+  }
+  const hourMatch = str.match(/([0-9.]+)\s*h/i);
+  if (hourMatch) {
+    return parseFloat(hourMatch[1]) * 60;
+  }
+  const num = parseFloat(str.replace(/[^0-9.]/g, ''));
+  return isNaN(num) ? 0 : num * 60;
+}
 
 /**
  * SimulationResultPanel Component
@@ -39,11 +111,12 @@ export default function SimulationResultPanel({
   onRunNewScenario,
   className = ''
 }) {
-  // Active metric displayed in the Forecast Trend line chart: 'power' | 'fuel' | 'both'
+  // Active metric displayed in the Forecast Trend line chart: 'power' | 'fuel'
   const [activeChartMetric, setActiveChartMetric] = useState('power');
 
-  // Interactive chart hover state
-  const [hoveredIdx, setHoveredIdx] = useState(null);
+  // Continuous hover tracking state (exact position & interpolated values)
+  const [cursorPos, setCursorPos] = useState(null);
+  const [cursorData, setCursorData] = useState(null);
   const chartContainerRef = useRef(null);
 
   // Fallback to default mock result if no external result passed and not empty/loading
@@ -186,35 +259,94 @@ export default function SimulationResultPanel({
     return padding.top + graphHeight - ((val - yMin) / (yMax - yMin)) * graphHeight;
   };
 
-  const pathD = points.reduce((acc, pt, i) => {
-    const val = activeChartMetric === 'fuel' ? pt.fuel : pt.power;
-    const x = getX(i);
-    const y = getY(val);
-    return i === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
-  }, '');
+  // Build plotted coordinates array for smooth spline curve
+  const pts = points.map((pt, i) => ({
+    x: getX(i),
+    y: getY(activeChartMetric === 'fuel' ? pt.fuel : pt.power),
+    power: pt.power,
+    fuel: pt.fuel,
+    time: pt.time,
+    index: i
+  }));
 
-  // Handle chart mouse move for snapping to nearest data point
+  const smoothCurveD = getSmoothSplinePath(pts);
+  const areaGradientD = pts.length > 1
+    ? `${smoothCurveD} L ${pts[pts.length - 1].x.toFixed(2)} ${(padding.top + graphHeight).toFixed(2)} L ${pts[0].x.toFixed(2)} ${(padding.top + graphHeight).toFixed(2)} Z`
+    : '';
+
+  // Baseline data values for reference line
+  const baselinePower = parseFloat(summary?.predictedPowerDemand?.baseline) || 72.0;
+  const baselineFuel = parseFloat(summary?.predictedFuelConsumption?.baseline) || 26.4;
+  const baselineVal = activeChartMetric === 'fuel' ? baselineFuel : baselinePower;
+  const baselineY = getY(baselineVal);
+
+  // Handle continuous cursor hover & interpolation across the graph
   const handleChartMouseMove = (e) => {
-    if (!chartContainerRef.current || points.length === 0) return;
+    if (!chartContainerRef.current || points.length < 2) return;
     const rect = chartContainerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const normX = (mouseX / rect.width) * svgWidth;
 
-    let nearestIdx = 0;
-    let minDiff = Infinity;
-    points.forEach((_, i) => {
-      const px = getX(i);
-      const diff = Math.abs(normX - px);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearestIdx = i;
-      }
+    // Clamp within chart drawable bounds
+    const minX = padding.left;
+    const maxX = padding.left + graphWidth;
+    const clampedX = Math.max(minX, Math.min(maxX, normX));
+    const ratio = (clampedX - minX) / graphWidth; // 0.0 to 1.0
+
+    // Continuous timeline segment interpolation
+    const N = points.length - 1;
+    const idxFloat = ratio * N;
+    const i = Math.min(Math.floor(idxFloat), N - 1);
+    const u = idxFloat - i; // fractional position between point i and i+1
+
+    const p0 = points[i];
+    const p1 = points[i + 1];
+
+    // Smooth spline values interpolation
+    const powerValues = points.map((p) => p.power);
+    const fuelValues = points.map((p) => p.fuel);
+    const interpPower = Number(getSplineValueAtU(powerValues, i, u).toFixed(1));
+    const interpFuel = Number(getSplineValueAtU(fuelValues, i, u).toFixed(1));
+
+    // Continuous exact time calculation
+    const m0 = parseTimeToMinutes(p0.time);
+    const m1 = parseTimeToMinutes(p1.time);
+    const totalMinutes = m0 + u * (m1 - m0);
+
+    const hrs = Math.floor(totalMinutes / 60);
+    let mins = Math.round(totalMinutes % 60);
+    let adjHrs = hrs;
+    if (mins >= 60) {
+      adjHrs += 1;
+      mins = 0;
+    }
+    const timeFormatted = `${String(adjHrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+
+    // Active metric exact Y coordinate on the smooth curve
+    const activeVal = activeChartMetric === 'fuel' ? interpFuel : interpPower;
+    const activeY = getY(activeVal);
+
+    setCursorPos({
+      x: clampedX,
+      y: activeY,
+      xPercent: (clampedX / svgWidth) * 100,
+      yPercent: (activeY / svgHeight) * 100
     });
-    setHoveredIdx(nearestIdx);
+
+    setCursorData({
+      time: timeFormatted,
+      power: interpPower,
+      fuel: interpFuel,
+      temperature: (p0.temperature !== undefined && p1.temperature !== undefined)
+        ? Number((p0.temperature + u * (p1.temperature - p0.temperature)).toFixed(1))
+        : undefined,
+      activeVal
+    });
   };
 
   const handleChartMouseLeave = () => {
-    setHoveredIdx(null);
+    setCursorPos(null);
+    setCursorData(null);
   };
 
   return (
@@ -507,10 +639,10 @@ export default function SimulationResultPanel({
           </div>
         </div>
 
-        {/* Responsive SVG Line Chart with Interactive Hover */}
+        {/* Responsive SVG Line Chart with Smooth Curve & Continuous Crosshair */}
         <div 
           ref={chartContainerRef}
-          className="w-full relative overflow-visible cursor-crosshair"
+          className="w-full relative overflow-visible cursor-crosshair rounded-xl"
           onMouseMove={handleChartMouseMove}
           onMouseLeave={handleChartMouseLeave}
         >
@@ -518,6 +650,17 @@ export default function SimulationResultPanel({
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
             className="w-full h-auto select-none overflow-visible"
           >
+            <defs>
+              <linearGradient id="sim-power-gradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#2563eb" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="#2563eb" stopOpacity="0.01" />
+              </linearGradient>
+              <linearGradient id="sim-fuel-gradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#d97706" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="#d97706" stopOpacity="0.01" />
+              </linearGradient>
+            </defs>
+
             {/* Horizontal Grid lines */}
             {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
               const y = padding.top + ratio * graphHeight;
@@ -529,9 +672,8 @@ export default function SimulationResultPanel({
                     y1={y}
                     x2={svgWidth - padding.right}
                     y2={y}
-                    stroke="#e2e8f0"
-                    strokeWidth="0.75"
-                    strokeDasharray="2,2"
+                    stroke="#f1f5f9"
+                    strokeWidth="1"
                   />
                   <text
                     x={padding.left - 6}
@@ -545,6 +687,30 @@ export default function SimulationResultPanel({
               );
             })}
 
+            {/* Baseline Reference Line: BASELINE -> SIMULATED RESULT */}
+            {baselineY >= padding.top && baselineY <= padding.top + graphHeight && (
+              <g className="pointer-events-none">
+                <line
+                  x1={padding.left}
+                  y1={baselineY}
+                  x2={svgWidth - padding.right}
+                  y2={baselineY}
+                  stroke="#94a3b8"
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                  opacity="0.65"
+                />
+                <text
+                  x={svgWidth - padding.right}
+                  y={baselineY - 4}
+                  textAnchor="end"
+                  className="text-[8.5px] font-mono fill-slate-500 font-semibold"
+                >
+                  Baseline: {baselineVal.toFixed(1)} {activeChartMetric === 'power' ? 'kW' : 'L/hr'}
+                </text>
+              </g>
+            )}
+
             {/* X-axis labels */}
             {points.map((pt, i) => (
               <text
@@ -552,117 +718,160 @@ export default function SimulationResultPanel({
                 x={getX(i)}
                 y={svgHeight - 8}
                 textAnchor="middle"
-                className={`text-[9px] font-mono font-medium transition-colors ${
-                  hoveredIdx === i ? 'fill-blue-600 font-bold' : 'fill-gray-500'
-                }`}
+                className="text-[9px] font-mono fill-gray-500 font-medium"
               >
                 {pt.time}
               </text>
             ))}
 
-            {/* Trend Polyline */}
+            {/* Subtle Gradient Area Fill under Curve */}
+            {areaGradientD && (
+              <path
+                d={areaGradientD}
+                fill={`url(#${activeChartMetric === 'power' ? 'sim-power-gradient' : 'sim-fuel-gradient'})`}
+                className="transition-all duration-300 pointer-events-none"
+              />
+            )}
+
+            {/* Smooth Spline Curve (Visually interpolates between existing points) */}
             <path
-              d={pathD}
+              d={smoothCurveD}
               fill="none"
               stroke={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
+              className="transition-all duration-300 ease-out"
             />
 
-            {/* Data point dots & values */}
-            {points.map((pt, i) => {
-              const val = activeChartMetric === 'fuel' ? pt.fuel : pt.power;
-              const x = getX(i);
-              const y = getY(val);
-              const isHovered = hoveredIdx === i;
+            {/* Clean Terminal Data Points (No dozens of permanent dots) */}
+            {pts.map((pt, i) => {
+              const isTerminal = i === 0 || i === pts.length - 1;
               return (
-                <g key={i}>
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={isHovered ? "5.5" : "3.5"}
-                    className="fill-white transition-all"
-                    stroke={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
-                    strokeWidth={isHovered ? "2.5" : "2"}
-                  />
-                  <text
-                    x={x}
-                    y={y - 8}
-                    textAnchor="middle"
-                    className={`text-[8.5px] font-mono font-bold transition-all ${
-                      isHovered ? 'fill-blue-700' : 'fill-gray-700'
-                    }`}
-                  >
-                    {val}
-                  </text>
-                </g>
+                <circle
+                  key={i}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={isTerminal ? "3.5" : "1.75"}
+                  fill="#ffffff"
+                  stroke={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
+                  strokeWidth={isTerminal ? "2" : "1"}
+                  opacity={isTerminal ? 0.95 : 0.3}
+                  className="transition-all duration-300 pointer-events-none"
+                />
               );
             })}
 
-            {/* Interactive Vertical Crosshair Guide */}
-            {hoveredIdx !== null && points[hoveredIdx] && (
-              <g className="pointer-events-none transition-all duration-150">
+            {/* Continuous Precise Crosshair & Active Point */}
+            {cursorPos && (
+              <g className="pointer-events-none transition-opacity duration-100">
+                {/* Thin, slightly transparent vertical guide line */}
                 <line
-                  x1={getX(hoveredIdx)}
+                  x1={cursorPos.x}
                   y1={padding.top}
-                  x2={getX(hoveredIdx)}
+                  x2={cursorPos.x}
                   y2={svgHeight - padding.bottom}
-                  stroke={activeChartMetric === 'power' ? '#3b82f6' : '#f59e0b'}
+                  stroke={activeChartMetric === 'power' ? '#60a5fa' : '#f59e0b'}
                   strokeWidth="1.25"
-                  strokeDasharray="3,2"
+                  strokeDasharray="3 3"
                   opacity="0.8"
                 />
-                {(() => {
-                  const val = activeChartMetric === 'fuel' ? points[hoveredIdx].fuel : points[hoveredIdx].power;
-                  return (
-                    <circle
-                      cx={getX(hoveredIdx)}
-                      cy={getY(val)}
-                      r="6"
-                      fill={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
-                      stroke="#fff"
-                      strokeWidth="2.5"
-                    />
-                  );
-                })()}
+                {/* Subtle active glow halo */}
+                <circle
+                  cx={cursorPos.x}
+                  cy={cursorPos.y}
+                  r="9"
+                  fill={activeChartMetric === 'power' ? 'rgba(37, 99, 235, 0.18)' : 'rgba(217, 119, 6, 0.18)'}
+                />
+                {/* Active Highlighted Point following cursor on the curve */}
+                <circle
+                  cx={cursorPos.x}
+                  cy={cursorPos.y}
+                  r="4.5"
+                  fill={activeChartMetric === 'power' ? '#2563eb' : '#d97706'}
+                  stroke="#ffffff"
+                  strokeWidth="2.5"
+                  className="drop-shadow-sm"
+                />
               </g>
             )}
           </svg>
 
-          {/* Interactive Floating Hover Tooltip */}
-          {hoveredIdx !== null && points[hoveredIdx] && (() => {
-            const pt = points[hoveredIdx];
-            const ptX = getX(hoveredIdx);
-            const xPercent = (ptX / svgWidth) * 100;
-            const timeLabel = pt.time.endsWith('h') 
-              ? `+${pt.time.replace('h', '')} hours` 
-              : pt.time;
+          {/* Continuous Hover Tooltip */}
+          {cursorPos && cursorData && (() => {
+            const flipLeft = cursorPos.xPercent > 55;
+            const clampedYPercent = Math.max(22, Math.min(78, cursorPos.yPercent));
 
             return (
-              <ChartTooltip
-                timestamp={timeLabel}
-                subtitle="Simulated"
-                items={[
-                  {
-                    label: 'Predicted Power Demand',
-                    value: pt.power,
-                    unit: 'kW',
-                    color: '#2563eb',
-                    isForecast: true
-                  },
-                  {
-                    label: 'Fuel Consumption',
-                    value: pt.fuel,
-                    unit: 'L/hr',
-                    color: '#d97706',
-                    isForecast: true
-                  }
-                ]}
-                xPercent={xPercent}
-                yPercent={40}
-                flipLeft={xPercent > 55}
-              />
+              <div
+                className="absolute z-30 pointer-events-none transition-transform duration-75 ease-out rounded-xl border border-slate-700/80 bg-slate-900/95 text-white shadow-xl p-3 min-w-[175px] backdrop-blur-md ring-1 ring-white/10 text-left"
+                style={{
+                  left: flipLeft ? undefined : `${cursorPos.xPercent}%`,
+                  right: flipLeft ? `${100 - cursorPos.xPercent}%` : undefined,
+                  top: `${clampedYPercent}%`,
+                  transform: `translate(${flipLeft ? '-14px' : '14px'}, -50%)`,
+                }}
+              >
+                {/* Time Header */}
+                <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-slate-800">
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                    <Clock className="w-3 h-3 text-blue-400 shrink-0" />
+                    <span>Time</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-white tracking-wide">
+                    {cursorData.time}
+                  </span>
+                </div>
+
+                {/* Parameters (Only show parameters that actually exist) */}
+                <div className="space-y-1.5 text-xs">
+                  {cursorData.power !== undefined && !isNaN(cursorData.power) && (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                        <span className="text-slate-300 font-medium text-[11px]">Power Demand</span>
+                      </div>
+                      <span className="font-mono font-bold text-white text-xs whitespace-nowrap">
+                        {cursorData.power.toFixed(1)} kW
+                      </span>
+                    </div>
+                  )}
+
+                  {cursorData.temperature !== undefined && !isNaN(cursorData.temperature) && (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                        <span className="text-slate-300 font-medium text-[11px]">Temperature</span>
+                      </div>
+                      <span className="font-mono font-bold text-white text-xs whitespace-nowrap">
+                        {cursorData.temperature.toFixed(1)} °C
+                      </span>
+                    </div>
+                  )}
+
+                  {cursorData.fuel !== undefined && !isNaN(cursorData.fuel) && (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                        <span className="text-slate-300 font-medium text-[11px]">Fuel Consumption</span>
+                      </div>
+                      <span className="font-mono font-bold text-white text-xs whitespace-nowrap">
+                        {cursorData.fuel.toFixed(1)} L/hr
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Delta vs Baseline */}
+                <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[9px] font-mono text-slate-400">
+                  <span className="text-slate-500">SIMULATED</span>
+                  <span className={activeChartMetric === 'power' ? 'text-blue-400 font-semibold' : 'text-amber-400 font-semibold'}>
+                    {activeChartMetric === 'power'
+                      ? `${cursorData.power >= baselinePower ? '+' : ''}${(cursorData.power - baselinePower).toFixed(1)} kW`
+                      : `${cursorData.fuel >= baselineFuel ? '+' : ''}${(cursorData.fuel - baselineFuel).toFixed(1)} L/hr`}
+                  </span>
+                </div>
+              </div>
             );
           })()}
         </div>
