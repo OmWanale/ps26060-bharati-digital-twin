@@ -20,6 +20,7 @@ import ArchitecturalFloorPlan from './components/ArchitecturalFloorPlan';
 import IndiaFlag from './components/IndiaFlag';
 import LiveNCPORDataModal from './components/LiveNCPORDataModal';
 import ForecastPanel from './components/ForecastPanel';
+import Esp32LedPanel from './components/Esp32LedPanel';
 import ScenarioControlPanel from './components/ScenarioControlPanel';
 import SimulationResultPanel from './components/SimulationResultPanel';
 import { simulateScenario } from './services/simulationService';
@@ -593,7 +594,12 @@ export default function App() {
             )}
           </div>
 
-          {/* 2. BOTTOM PART: FORECAST */}
+          {/* 2. MIDDLE PART: ESP32 LIVE HARDWARE CONTROL */}
+          <div className="p-5 shrink-0 bg-white">
+            <Esp32LedPanel />
+          </div>
+
+          {/* 3. BOTTOM PART: FORECAST */}
           <div className="p-5 shrink-0 bg-white">
             <ForecastPanel />
           </div>
