@@ -1,0 +1,32 @@
+[
+  {
+    "item_id": "ITEM_SPARE001",
+    "closing_stock": 1112.8,
+    "days_remaining": 999.0,
+    "predicted_reorder_needed": false
+  },
+  {
+    "item_id": "ITEM_SPARE002",
+    "closing_stock": 1859.6,
+    "days_remaining": 967.7,
+    "predicted_reorder_needed": false
+  },
+  {
+    "item_id": "ITEM_FOOD001",
+    "closing_stock": 0.0,
+    "days_remaining": 0.0,
+    "predicted_reorder_needed": true
+  },
+  {
+    "item_id": "ITEM_FUEL001",
+    "closing_stock": 8702.3,
+    "days_remaining": 22.1,
+    "predicted_reorder_needed": false
+  },
+  {
+    "item_id": "ITEM_MED001",
+    "closing_stock": 1281.4,
+    "days_remaining": 761.2,
+    "predicted_reorder_needed": false
+  }
+]

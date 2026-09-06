@@ -1,0 +1,32 @@
+[
+  {
+    "equipment_id": "EQ_M003",
+    "predicted_health_score": 20.0,
+    "predicted_anomaly": true,
+    "failure_risk_pct": 100.0
+  },
+  {
+    "equipment_id": "EQ_B001",
+    "predicted_health_score": 47.5,
+    "predicted_anomaly": false,
+    "failure_risk_pct": 85.9
+  },
+  {
+    "equipment_id": "EQ_M001",
+    "predicted_health_score": 20.0,
+    "predicted_anomaly": true,
+    "failure_risk_pct": 100.0
+  },
+  {
+    "equipment_id": "EQ_M002",
+    "predicted_health_score": 20.0,
+    "predicted_anomaly": true,
+    "failure_risk_pct": 100.0
+  },
+  {
+    "equipment_id": "EQ_B002",
+    "predicted_health_score": 20.0,
+    "predicted_anomaly": true,
+    "failure_risk_pct": 100.0
+  }
+]
