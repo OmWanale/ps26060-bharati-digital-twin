@@ -29,10 +29,32 @@ export default function Esp32LedPanel() {
   const [lastResult, setLastResult] = useState(null); // { ok, latencyMs, reason }
   const offlineTimerRef = useRef(null);
 
+  // The bridge ranks devices: real hardware always wins over simulators and
+  // is placed first in device_state.devices. Trust `state.preferred` as the
+  // active device and accept telemetry only for it - this fixes the old bug
+  // where simulator telemetry was silently dropped and the panel showed no
+  // live data when only a simulator was connected.
+  const activeDeviceRef = useRef(null);
+  const [isSimulator, setIsSimulator] = useState(false);
+
+  const isSimDevice = (deviceId, meta) =>
+    String(meta?.kind || '').toLowerCase().includes('sim') ||
+    String(deviceId || '').toLowerCase().includes('sim');
+
+  const applyTelemetry = (deviceId, tel) => {
+    if (!tel) return;
+    setTelemetry({ ...tel, deviceId });
+  };
+
   // Live subscription over WebSocket
   useEffect(() => {
     const unsubscribe = subscribeDeviceEvents({
       onState: (state) => {
+        const preferred = state.preferred || state.deviceId || null;
+        const preferredEntry = Array.isArray(state.devices)
+          ? state.devices.find((d) => d.deviceId === preferred) || null
+          : null;
+
         if (state.online) {
           // Device is connected - cancel any pending offline flip
           if (offlineTimerRef.current) {
@@ -40,10 +62,9 @@ export default function Esp32LedPanel() {
             offlineTimerRef.current = null;
           }
           setOnline(true);
-          // Prefer the real device telemetry over a simulator's
-          if (state.telemetry && !(state.telemetry.deviceId || '').includes('sim')) {
-            setTelemetry({ ...state.telemetry, deviceId: state.telemetry.deviceId });
-          }
+          activeDeviceRef.current = preferred;
+          setIsSimulator(preferred ? isSimDevice(preferred, preferredEntry?.meta) : false);
+          if (preferredEntry) applyTelemetry(preferred, preferredEntry.telemetry);
         } else {
           // Grace period: a single dropped WS frame / blip should not flip
           // the badge. Wait 8s of confirmed offline before showing OFFLINE.
@@ -52,18 +73,22 @@ export default function Esp32LedPanel() {
         }
       },
       onTelemetry: (msg) => {
-        // Ignore simulator telemetry when it can't be the real device's
-        if (msg.deviceId && String(msg.deviceId).includes('sim')) {
-          setTelemetry((prev) => (prev && (prev.deviceId || '').includes('sim') ? { ...msg.telemetry, deviceId: msg.deviceId } : prev));
-          return;
-        }
+        const deviceId = msg.deviceId || null;
+        // Only accept telemetry for the tracked active device; when unknown
+        // yet (or offline during the grace period), accept any non-null id so
+        // simulator-only setups still render live data.
+        if (activeDeviceRef.current && deviceId !== activeDeviceRef.current) return;
+        if (!activeDeviceRef.current && !deviceId) return;
+
         // Any live telemetry also means the device is reachable
         if (offlineTimerRef.current) {
           clearTimeout(offlineTimerRef.current);
           offlineTimerRef.current = null;
         }
         setOnline(true);
-        setTelemetry({ ...msg.telemetry, deviceId: msg.deviceId });
+        if (!activeDeviceRef.current) activeDeviceRef.current = deviceId;
+        setIsSimulator(isSimDevice(deviceId, null));
+        applyTelemetry(deviceId, msg.telemetry);
       },
       onLog: (entry) => {
         setLog((prev) => [entry, ...prev].slice(0, 6));
@@ -131,12 +156,18 @@ export default function Esp32LedPanel() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-base font-bold text-gray-900 tracking-tight">ESP32 LED Control</h2>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              LIVE HARDWARE
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                isSimulator
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}
+            >
+              {isSimulator ? 'SIMULATOR' : 'LIVE HARDWARE'}
             </span>
           </div>
           <p className="text-xs text-gray-500 font-medium mt-0.5">
-            Remote command execution on real device
+            {isSimulator ? 'Remote command execution on simulated device' : 'Remote command execution on real device'}
           </p>
         </div>
 

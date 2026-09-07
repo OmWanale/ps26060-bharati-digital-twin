@@ -12,11 +12,43 @@
  * the preferred device: real hardware (kind !== simulator) always wins.
  */
 
+import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 
-const TOKEN = process.env.DEVICE_AUTH_TOKEN || 'bharati-dev-token';
+// ---------------------------------------------------------------------------
+// Auth token: must be provided in production; auto-generated in development
+// so no secret is ever hardcoded/committed.
+// ---------------------------------------------------------------------------
+function resolveDeviceToken() {
+  const token = process.env.DEVICE_AUTH_TOKEN;
+  if (typeof token === 'string' && token.length > 0) return token;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[Bridge] DEVICE_AUTH_TOKEN is not set. Refusing to start in production with a default/generated token. ' +
+      'Set DEVICE_AUTH_TOKEN in your environment (see .env.example).'
+    );
+  }
+
+  const generated = crypto.randomBytes(24).toString('hex');
+  console.warn('[Bridge] DEVICE_AUTH_TOKEN not set - generated a random development token.');
+  console.warn(`[Bridge] Dev token (pass to devices/simulator): ${generated}`);
+  return generated;
+}
+
+const TOKEN = resolveDeviceToken();
+
+// Constant-time token comparison (lengths normalized via sha256 digest).
+function tokenMatches(candidate) {
+  if (typeof candidate !== 'string') return false;
+  const expected = crypto.createHash('sha256').update(TOKEN).digest();
+  const provided = crypto.createHash('sha256').update(candidate).digest();
+  return crypto.timingSafeEqual(expected, provided);
+}
+
 const CMD_TIMEOUT_MS = 5000;
 const MAX_LOG_ENTRIES = 100;
+const REGISTRATION_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // State: deviceId -> { ws, meta, lastSeen, lastTelemetry }
@@ -175,18 +207,63 @@ function deviceDisconnected(deviceId) {
 // ---------------------------------------------------------------------------
 // Command execution (called from REST)
 // ---------------------------------------------------------------------------
+// Per-action allowlist for client-supplied params. Any key outside the
+// allowlist is rejected, so reserved protocol fields (type, cmd_id, action)
+// can never be smuggled through. `speed` range mirrors the firmware guard
+// (esp32_led.ino accepts 50..5000 ms). `deviceId` is routing-only and is
+// stripped before this check.
+const COMMAND_PARAM_ALLOWLIST = {
+  LED_START_BLINK: ['speed'],
+  LED_STOP_BLINK: [],
+  GET_STATUS: [],
+};
+
+function sanitizeCommandParams(action, params) {
+  const allowed = COMMAND_PARAM_ALLOWLIST[action];
+  if (!allowed) return { error: 'unknown_action' };
+
+  for (const key of Object.keys(params)) {
+    if (!allowed.includes(key)) return { error: 'invalid_params' };
+  }
+
+  const clean = {};
+  if (allowed.includes('speed') && 'speed' in params) {
+    const speed = Number(params.speed);
+    if (!Number.isInteger(speed) || speed < 50 || speed > 5000) return { error: 'invalid_params' };
+    clean.speed = speed;
+  }
+  return { params: clean };
+}
+
 export function sendDeviceCommand(action, params = {}) {
-  const deviceId = params.deviceId || preferredDeviceId();
+  const cmdId = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+    pushLog({ ts: new Date().toISOString(), event: 'rejected', cmdId, action, reason: 'invalid_params' });
+    return Promise.resolve({ delivered: false, acked: false, reason: 'invalid_params', cmdId });
+  }
+
+  // deviceId is a routing hint only - never forwarded to the device payload.
+  const { deviceId: routingDeviceId, ...sanitizableParams } = params;
+  const requestedDeviceId = typeof routingDeviceId === 'string' ? routingDeviceId : null;
+  const deviceId = requestedDeviceId || preferredDeviceId();
   const dev = deviceId ? devices.get(deviceId) : null;
 
-  const cmdId = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const sanitized = sanitizeCommandParams(action, sanitizableParams);
+  if (sanitized.error) {
+    pushLog({ ts: new Date().toISOString(), event: 'rejected', cmdId, action, reason: sanitized.error });
+    return Promise.resolve({ delivered: false, acked: false, reason: sanitized.error, cmdId });
+  }
+  const cleanParams = sanitized.params;
 
   if (!dev || dev.ws.readyState !== 1) {
     pushLog({ ts: new Date().toISOString(), event: 'rejected', cmdId, action, reason: 'device_offline' });
     return Promise.resolve({ delivered: false, acked: false, reason: 'device_offline', cmdId });
   }
 
-  const payload = JSON.stringify({ type: 'command', cmd_id: cmdId, action, ...params });
+  // Reserved protocol fields are constructed explicitly AFTER the sanitized
+  // params spread, so they cannot be overridden.
+  const payload = JSON.stringify({ ...cleanParams, type: 'command', cmd_id: cmdId, action });
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -197,7 +274,7 @@ export function sendDeviceCommand(action, params = {}) {
 
     pendingCommands.set(cmdId, { deviceId, timer, resolve, sentAt: Date.now() });
     dev.ws.send(payload);
-    pushLog({ ts: new Date().toISOString(), event: 'sent', cmdId, action, params, deviceId });
+    pushLog({ ts: new Date().toISOString(), event: 'sent', cmdId, action, params: cleanParams, deviceId });
     console.log(`[Bridge] Command ${action} -> ${deviceId} (${cmdId})`);
   });
 }
@@ -246,6 +323,13 @@ export function attachDeviceBridge(httpServer) {
       console.log('[Bridge] Device socket opened');
 
       let registeredId = null;
+      // Unregistered sockets get one window to present a valid register frame.
+      const registrationTimer = setTimeout(() => {
+        if (!registeredId) {
+          console.log('[Bridge] Device socket closed: never registered');
+          try { ws.close(); } catch { /* noop */ }
+        }
+      }, REGISTRATION_TIMEOUT_MS);
 
       ws.on('message', (raw) => {
         // Registration must come first
@@ -257,13 +341,17 @@ export function attachDeviceBridge(httpServer) {
             return;
           }
           if (msg.type !== 'register') return;
-          if (msg.token !== TOKEN) {
+          if (!tokenMatches(msg.token)) {
             ws.send(JSON.stringify({ type: 'error', message: 'Unauthorized' }));
             console.log('[Bridge] Device rejected: bad token');
+            clearTimeout(registrationTimer);
             ws.close();
             return;
           }
-          registeredId = msg.deviceId || `device_${Date.now()}`;
+          clearTimeout(registrationTimer);
+          const requestedId =
+            typeof msg.deviceId === 'string' ? msg.deviceId.trim().slice(0, 64) : '';
+          registeredId = requestedId || `device_${Date.now()}`;
           // If this deviceId re-registers, drop the stale socket
           const existing = devices.get(registeredId);
           if (existing && existing.ws.readyState === 1) existing.ws.close();
@@ -288,8 +376,14 @@ export function attachDeviceBridge(httpServer) {
         handleDeviceMessage(registeredId, ws, raw);
       });
 
-      ws.on('close', () => registeredId && deviceDisconnected(registeredId));
-      ws.on('error', () => registeredId && deviceDisconnected(registeredId));
+      ws.on('close', () => {
+        clearTimeout(registrationTimer);
+        if (registeredId) deviceDisconnected(registeredId);
+      });
+      ws.on('error', () => {
+        clearTimeout(registrationTimer);
+        if (registeredId) deviceDisconnected(registeredId);
+      });
     } else if (ws.isPanel) {
       console.log('[Bridge] Panel socket opened');
       panels.add(ws);

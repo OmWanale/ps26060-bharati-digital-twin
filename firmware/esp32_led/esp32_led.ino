@@ -22,7 +22,7 @@ const char* WIFI_PASS   = "YOUR_HOTSPOT_PASSWORD";
 const char* BRIDGE_HOST = "YOUR_BRIDGE_HOST";      // e.g. "192.168.1.5" or "xxx.up.railway.app"
 const int   BRIDGE_PORT = 3001;                    // Railway: 443, local: 3001
 const bool  BRIDGE_TLS  = false;                   // Railway: true, local: false
-const char* DEVICE_TOKEN   = "bharati-dev-token";
+const char* DEVICE_TOKEN   = "PASTE_TOKEN_FROM_SERVER_ENV";  // must equal DEVICE_AUTH_TOKEN on the bridge
 const char* DEVICE_ID      = "esp32_led_01";
 // ===========================================================================
 

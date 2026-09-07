@@ -11,7 +11,14 @@
 import WebSocket from 'ws';
 
 const URL = process.argv[2] || 'ws://localhost:3001/ws/device';
-const TOKEN = process.env.DEVICE_AUTH_TOKEN || 'bharati-dev-token';
+// Must match DEVICE_AUTH_TOKEN the bridge was started with. The bridge logs
+// its generated dev token on startup when the env var is not set.
+const TOKEN = process.env.DEVICE_AUTH_TOKEN;
+if (!TOKEN) {
+  console.error('[Sim] DEVICE_AUTH_TOKEN is not set. Export the same token the bridge uses:');
+  console.error('[Sim]   export DEVICE_AUTH_TOKEN=<token>   # see bridge startup log or .env');
+  process.exit(1);
+}
 const DEVICE_ID = 'esp32_led_sim';
 
 let led = false;

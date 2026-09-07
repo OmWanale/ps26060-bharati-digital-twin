@@ -106,11 +106,40 @@ cd ps26060-bharati-digital-twin
 # 3. Install dependencies
 npm install
 
-# 4. Start development server
+# 4. Create your local env file (token is shared by bridge + simulator)
+cp .env.example .env
+```
+
+### Run the full project (UI + bridge + device simulator)
+
+The quickest way to see everything working — the SCADA UI, the live ESP32
+panel with telemetry, and remote commands — is to run all three processes:
+
+```bash
+# Terminal 1: bridge server (REST + WebSocket on :3001, auto-loads .env)
+npm run start:bridge
+
+# Terminal 2: fake ESP32 device (shares DEVICE_AUTH_TOKEN from .env)
+npm run sim
+
+# Terminal 3: web UI
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Then open **http://localhost:5173** — the **ESP32 LED Control** panel in the
+right sidebar shows **ONLINE** with live telemetry → click **Start Blink** and
+watch the command log (`SENT` → `ACK ~120ms`). Commands are sanitized and
+verified against `DEVICE_AUTH_TOKEN` from your `.env` (bridge and simulator
+read the same file, so it works with no extra setup).
+
+> Tip: the app works fine with just `npm run dev` too — the ESP32 panel simply
+> shows OFFLINE until the bridge + simulator (or real hardware) are running.
+
+### Run only the UI (without the hardware bridge)
+
+```bash
+npm run dev
+```
 
 ### Production Build
 
@@ -126,14 +155,10 @@ npm run preview
 ### A. Local test without hardware (2 minutes)
 
 ```bash
-# Terminal 1: bridge server (REST + WebSocket on :3001)
-npm run start:bridge
-
-# Terminal 2: fake ESP32
-npm run sim
-
-# Terminal 3: UI
-npm run dev
+cp .env.example .env          # once; both processes auto-load it
+npm run start:bridge          # Terminal 1: REST + WebSocket on :3001
+npm run sim                   # Terminal 2: fake ESP32 (same .env token)
+npm run dev                   # Terminal 3: UI on :5173
 ```
 Open the app → the **ESP32 LED Control** panel in the right sidebar shows **ONLINE** → click **Start Blink** → watch the command log show `SENT LED_START_BLINK` + `ACK ... status=ok`.
 
@@ -150,7 +175,7 @@ Open the app → the **ESP32 LED Control** panel in the right sidebar shows **ON
 
 1. Push this repo to GitHub.
 2. On [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**.
-3. Add environment variables: `DEVICE_AUTH_TOKEN` (a long random string), `ALLOWED_ORIGIN=https://ps26060-bharati-digital-twin.vercel.app`.
+3. Add environment variables: `DEVICE_AUTH_TOKEN` (a long random string — **required** in production; the bridge refuses to start without it), `ALLOWED_ORIGIN=https://ps26060-bharati-digital-twin.vercel.app`.
 4. Railway injects `PORT` automatically. Enable **TCP Proxy** on port `443` for the public `wss://` URL.
 5. Set `VITE_BRIDGE_URL=https://your-app.up.railway.app` in **Vercel** project settings and redeploy.
 6. Update `BRIDGE_HOST`/`BRIDGE_TLS` in the firmware, re-flash the ESP32 — now the live site controls hardware across any network.

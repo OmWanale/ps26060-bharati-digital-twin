@@ -6,12 +6,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node server.js",
+    "server": "node --env-file-if-exists=.env server.js",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "start:bridge": "node server.js",
-    "sim": "node server/deviceSimulator.js"
+    "start:bridge": "node --env-file-if-exists=.env server.js",
+    "sim": "node --env-file-if-exists=.env server/deviceSimulator.js"
   },
   "dependencies": {
     "lucide-react": "^1.41.0",

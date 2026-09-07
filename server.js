@@ -27,11 +27,19 @@ const server = http.createServer((req, res) => {
   // ------------------------------------------------------------------
   if (req.url === '/api/device/command' && req.method === 'POST') {
     let body = '';
+    let tooLarge = false;
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > 10_000) req.destroy(); // basic size guard
+      if (body.length > 10_000) {
+        tooLarge = true;
+        body = '';
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Payload too large' }));
+        req.destroy();
+      }
     });
     req.on('end', async () => {
+      if (tooLarge) return; // response already sent
       try {
         const parsed = JSON.parse(body || '{}');
         const { action, params } = parsed;
