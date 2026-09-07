@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { 
-  ZoomIn, 
-  ZoomOut, 
-  RotateCcw, 
+import {
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
   Move
 } from 'lucide-react';
 import { FLOOR_PLANS } from '../data/bharatiFloorData';
@@ -134,8 +134,8 @@ export default function ArchitecturalFloorPlan({
     }
 
     // Adaptive name selection
-    const titleText = (isSmall || isNarrow) && room.shortName 
-      ? room.shortName 
+    const titleText = (isSmall || isNarrow) && room.shortName
+      ? room.shortName
       : room.name;
 
     // Sizing
@@ -211,7 +211,7 @@ export default function ArchitecturalFloorPlan({
   };
 
   return (
-    <div 
+    <div
       className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-0 overflow-hidden flex flex-col relative select-none"
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
@@ -267,13 +267,13 @@ export default function ArchitecturalFloorPlan({
       </div>
 
       {/* Main SVG Floor Plan Viewport */}
-      <div 
+      <div
         className="flex-1 relative overflow-hidden bg-[#fafbfc] cursor-crosshair flex items-center justify-center"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
       >
         {/* Subtle Engineering Blueprint Grid */}
-        <div 
+        <div
           className="absolute inset-0 pointer-events-none opacity-40"
           style={{
             backgroundImage: `linear-gradient(to right, #e2e8f0 1px, transparent 1px), linear-gradient(to bottom, #e2e8f0 1px, transparent 1px)`,
@@ -353,7 +353,7 @@ export default function ArchitecturalFloorPlan({
               {/* Corridors and Circulation (No overlapping text across walls) */}
               <g id="corridors-and-circulation">
                 {floorData.corridors?.map((corridor, i) => (
-                  <g 
+                  <g
                     key={`corridor-${i}`}
                     onMouseEnter={() => setHoveredId(corridor.label)}
                     onMouseLeave={() => setHoveredId(null)}
@@ -396,8 +396,8 @@ export default function ArchitecturalFloorPlan({
 
                 {/* Staircases (Text placed strictly inside bounds) */}
                 {floorData.stairs?.map((stair, i) => (
-                  <g 
-                    key={`stair-${i}`} 
+                  <g
+                    key={`stair-${i}`}
                     className="select-none cursor-default"
                     onMouseEnter={() => setHoveredId(stair.label)}
                     onMouseLeave={() => setHoveredId(null)}
@@ -597,10 +597,10 @@ export default function ArchitecturalFloorPlan({
                           {!['vehicle', 'ro_tubes', 'bioreactor', 'switchgear_cubicle', 'air_handling_unit'].includes(sym.type) && sym.w && sym.h && (
                             <g>
                               <rect x={sym.x} y={sym.y} width={sym.w} height={sym.h} rx="2" fill="#f8fafc" stroke="#94a3b8" strokeWidth="0.75" />
-                              <text 
-                                x={sym.x + sym.w / 2} 
-                                y={sym.y + sym.h / 2 + 2.5} 
-                                textAnchor="middle" 
+                              <text
+                                x={sym.x + sym.w / 2}
+                                y={sym.y + sym.h / 2 + 2.5}
+                                textAnchor="middle"
                                 className="font-mono fill-slate-600 font-medium"
                                 style={{
                                   fontSize: `${Math.min(6.5, Math.max(5, (sym.w - 8) / (sym.label.length * 0.62)))}px`
