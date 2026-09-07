@@ -6,15 +6,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node server.js",
+    "server": "node --env-file-if-exists=.env server.js",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:bridge": "node --env-file-if-exists=.env server.js",
+    "sim": "node --env-file-if-exists=.env server/deviceSimulator.js"
   },
   "dependencies": {
     "lucide-react": "^1.41.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

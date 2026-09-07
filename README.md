@@ -55,6 +55,25 @@ This platform provides a centralized, interactive **2D Architectural Blueprint &
 - **5. Communication Link Degraded**: Ku-band ionospheric jitter detected $\rightarrow$ Failover to polar Inmarsat BGAN transceiver.
 - **6. Extreme External Temperature**: Katabatic wind chill (-46°C) $\rightarrow$ Recirculate 85% indoor air and boost glycol heat loop.
 
+### 4. Live Hardware Remote Command Execution (Real Digital Twin Loop)
+The platform closes the physical ↔ digital loop with a **real ESP32 node** controllable from the UI:
+
+```
+React UI ──REST POST──► Bridge Server (Node + ws) ──WebSocket──► ESP32 (built-in LED, GPIO 2)
+   ▲                          │                                       │
+   └──── WS live telemetry ───┘◄────────── 1 Hz telemetry + acks ─────┘
+```
+
+- **ESP32 LED Control panel** (right sidebar): shows device ONLINE/OFFLINE, live LED state, WiFi signal (RSSI), uptime, command count, plus a live command log with ack latency (ms).
+- **Remote commands**: `LED_START_BLINK` / `LED_STOP_BLINK` — sent via `POST /api/device/command`, relayed over WebSocket, acknowledged by the real device.
+- **Cross-network**: the ESP32 connects *outbound* to the cloud bridge, so it can sit on a mobile hotspot while the UI runs anywhere.
+- **Safety**: LED auto-stops on link loss; commands fail loudly (409 device offline / 504 ack timeout) instead of silently pretending.
+- **Components**:
+  - `firmware/esp32_led/esp32_led.ino` — ESP32 firmware (WebSocket client, JSON commands, telemetry)
+  - `server/deviceBridge.js` — WebSocket bridge: device registry, command relay with 5s ack timeout, command log
+  - `server/deviceSimulator.js` — fake device for testing without hardware
+  - `src/components/Esp32LedPanel.jsx` — live hardware control panel UI
+
 ---
 
 ## 🛠️ Technology Stack
@@ -65,6 +84,7 @@ This platform provides a centralized, interactive **2D Architectural Blueprint &
 | **Styling & Theme** | Tailwind CSS (Enterprise Architectural Light Mode) |
 | **Vector Floor-Plan** | Pure Scalable Vector Graphics (SVG) with CAD Pan & Zoom |
 | **Iconography** | Lucide React |
+| **Hardware Bridge** | Node.js `ws` (WebSocket relay) + ESP32 firmware |
 | **Deployment** | Vercel Serverless Edge |
 
 ---
@@ -86,11 +106,40 @@ cd ps26060-bharati-digital-twin
 # 3. Install dependencies
 npm install
 
-# 4. Start development server
+# 4. Create your local env file (token is shared by bridge + simulator)
+cp .env.example .env
+```
+
+### Run the full project (UI + bridge + device simulator)
+
+The quickest way to see everything working — the SCADA UI, the live ESP32
+panel with telemetry, and remote commands — is to run all three processes:
+
+```bash
+# Terminal 1: bridge server (REST + WebSocket on :3001, auto-loads .env)
+npm run start:bridge
+
+# Terminal 2: fake ESP32 device (shares DEVICE_AUTH_TOKEN from .env)
+npm run sim
+
+# Terminal 3: web UI
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Then open **http://localhost:5173** — the **ESP32 LED Control** panel in the
+right sidebar shows **ONLINE** with live telemetry → click **Start Blink** and
+watch the command log (`SENT` → `ACK ~120ms`). Commands are sanitized and
+verified against `DEVICE_AUTH_TOKEN` from your `.env` (bridge and simulator
+read the same file, so it works with no extra setup).
+
+> Tip: the app works fine with just `npm run dev` too — the ESP32 panel simply
+> shows OFFLINE until the bridge + simulator (or real hardware) are running.
+
+### Run only the UI (without the hardware bridge)
+
+```bash
+npm run dev
+```
 
 ### Production Build
 
@@ -98,6 +147,38 @@ Open `http://localhost:5173` in your browser.
 npm run build
 npm run preview
 ```
+
+---
+
+## 🔌 Live Hardware Demo — Setup Guide (ESP32)
+
+### A. Local test without hardware (2 minutes)
+
+```bash
+cp .env.example .env          # once; both processes auto-load it
+npm run start:bridge          # Terminal 1: REST + WebSocket on :3001
+npm run sim                   # Terminal 2: fake ESP32 (same .env token)
+npm run dev                   # Terminal 3: UI on :5173
+```
+Open the app → the **ESP32 LED Control** panel in the right sidebar shows **ONLINE** → click **Start Blink** → watch the command log show `SENT LED_START_BLINK` + `ACK ... status=ok`.
+
+### B. Real ESP32 (DevKit V1)
+
+1. Open `firmware/esp32_led/esp32_led.ino` in Arduino IDE (ESP32 core + `WebSockets` by Links2004 + `ArduinoJson` required — already installed).
+2. Edit the config block at the top: `WIFI_SSID`, `WIFI_PASS` (mobile hotspot), `BRIDGE_HOST`/`BRIDGE_PORT`/`BRIDGE_TLS`.
+   - Local: `BRIDGE_HOST` = your laptop's IP, port `3001`, TLS `false` (both devices on the same WiFi/hotspot).
+   - Cloud (Railway): host = `your-app.up.railway.app`, port `443`, TLS `true` — works across networks.
+3. Select **ESP32 Dev Module** + correct port → Upload → Serial Monitor (115200).
+4. `DEVICE_TOKEN` in the firmware must match `DEVICE_AUTH_TOKEN` in the server `.env`.
+
+### C. Cloud bridge deployment (Railway, free)
+
+1. Push this repo to GitHub.
+2. On [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**.
+3. Add environment variables: `DEVICE_AUTH_TOKEN` (a long random string — **required** in production; the bridge refuses to start without it), `ALLOWED_ORIGIN=https://ps26060-bharati-digital-twin.vercel.app`.
+4. Railway injects `PORT` automatically. Enable **TCP Proxy** on port `443` for the public `wss://` URL.
+5. Set `VITE_BRIDGE_URL=https://your-app.up.railway.app` in **Vercel** project settings and redeploy.
+6. Update `BRIDGE_HOST`/`BRIDGE_TLS` in the firmware, re-flash the ESP32 — now the live site controls hardware across any network.
 
 ---
 
